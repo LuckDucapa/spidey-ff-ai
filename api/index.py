@@ -1,18 +1,18 @@
 import os
 import requests
 import re
-import urllib.parse
-from flask import Flask, request, jsonify, Response
+import random
+from flask import Flask, request, jsonify, redirect
 
 app = Flask(__name__)
-
-# --- CONFIGURATION ---
 app.json.sort_keys = False 
 
-# NOTE: On Vercel, you must add 'OPENROUTER_API_KEY' in the Vercel Project Settings > Environment Variables
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY") # Don't hardcode keys for Vercel deployment
+# --- CONFIGURATION ---
+# OpenRouter Key from Vercel Environment Variables
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Reliable Free Chat Model
 CHAT_MODEL = "xiaomi/mimo-v2-flash:free" 
 CREDIT_TAG = "@spidey_abd"
 
@@ -20,12 +20,12 @@ def get_chat_headers():
     return {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://vercel.com", 
+        "HTTP-Referer": "https://vercel.app", 
         "X-Title": "Vercel API"
     }
 
 # ==========================================
-#  1. CHAT ENDPOINT
+#  1. CHAT ENDPOINT (Unchanged)
 # ==========================================
 @app.route('/chat', methods=['GET'])
 def chat():
@@ -33,11 +33,7 @@ def chat():
     limit_arg = request.args.get('limit')
     
     if not user_query:
-        return jsonify({
-            "query": "None", 
-            "answer": "Error: No query provided", 
-            "credit": CREDIT_TAG
-        }), 400
+        return jsonify({"query": "None", "answer": "Error: No query provided", "credit": CREDIT_TAG}), 400
 
     if limit_arg and limit_arg.isdigit():
         char_limit = int(limit_arg)
@@ -46,15 +42,14 @@ def chat():
             f"You are a helpful assistant. "
             f"1. Answer strictly in less than {char_limit} characters. "
             "2. Be concise. "
-            "3. Do NOT use Markdown formatting (no asterisks *, no hashes #). Plain text only."
+            "3. Do NOT use Markdown (no * or #). Plain text only."
         )
     else:
         system_prompt = (
             "You are a helpful assistant. "
             "1. Provide a detailed, comprehensive answer. "
-            "2. Do NOT use Markdown formatting (no asterisks *, no hashes #). "
+            "2. Do NOT use Markdown formatting. "
             "3. Write in plain text paragraphs. "
-            "4. Be fast but thorough."
         )
         max_tokens_calc = 2000 
 
@@ -99,29 +94,27 @@ def chat():
 
 
 # ==========================================
-#  2. IMAGE ENDPOINT
+#  2. IMAGE ENDPOINT (Redirect Fix)
 # ==========================================
 @app.route('/image', methods=['GET'])
 def image():
     prompt = request.args.get('prompt')
     if not prompt: return "Error: No prompt provided", 400
 
-    encoded_prompt = urllib.parse.quote(prompt)
-    pollinations_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+    # 1. Clean the prompt (Remove weird symbols that might break the URL)
+    clean_prompt = re.sub(r'[^\w\s\-\.\,]', '', prompt) 
+    
+    # 2. Add Random Seed (Prevents Pollinations from rejecting duplicate requests)
+    seed = random.randint(0, 999999)
 
-    try:
-        # Note: Vercel Free tier has a 10s timeout. Pollinations is usually fast enough.
-        img_response = requests.get(pollinations_url, stream=True, timeout=9) 
-        
-        if img_response.status_code == 200:
-            return Response(img_response.content, mimetype='image/jpeg')
-        else:
-            return f"Error from Pollinations AI: {img_response.status_code}", 502
+    # 3. Build URL
+    # We send the user DIRECTLY to Pollinations. 
+    # This bypasses the Python blocking and the Vercel timeout.
+    pollinations_url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
 
-    except Exception as e:
-        return f"Server Error: {str(e)}", 500
+    # 4. HTTP 302 Redirect
+    return redirect(pollinations_url, code=302)
 
-# Vercel handles the execution, so app.run() is not needed here, 
-# but we leave it for local testing if you run 'python api/index.py'
+# For local testing
 if __name__ == '__main__':
     app.run()
