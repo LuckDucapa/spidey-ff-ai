@@ -11,7 +11,7 @@ app = Flask(__name__)
 app.json.sort_keys = False
 
 # API Keys
-SAMBA_API_KEY = "ca693644-895b-4688-8628-561b3ef6ab9f"
+SAMBA_API_KEY = os.environ.get("SAMBA_API_KEY")
 SAMBA_URL = "https://api.sambanova.ai/v1/chat/completions"
 
 # In-memory history storage
